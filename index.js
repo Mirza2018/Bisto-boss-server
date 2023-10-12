@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const jwt = require('jsonwebtoken')
 const app = express();
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config()
@@ -9,6 +10,22 @@ const port = process.env.PORT || 5000;
 // middlewire
 app.use(cors())
 app.use(express.json())
+
+const verifyJwt = (req, res, next) => {
+    const authorization = req.headers.authorization;
+    if (!authorization) {
+        res.status(401).send({ error: true, message: "Unauthorization Access" })
+    }
+    const token = authorization.split(' ')[1]
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+        if (err) {
+            return res.status(401).send({ error: true, message: "Unauthorization Access" })
+        }
+        req.decoded = decoded;
+        next();
+    })
+}
+
 
 app.get('/', (req, res) => {
     res.send("Bistro Bosss Server is On ")
@@ -34,8 +51,13 @@ async function run() {
         const reviewCollection = client.db('bistroDb').collection('reviews')
         const cartCollection = client.db('bistroDb').collection('carts')
 
+        app.post('/jwt', (req, res) => {
+            const user = req.body;
+            const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' })
+            res.send({ token })
+        })
         //users apis
-        app.get('/user', async (req, res) => {
+        app.get('/users', async (req, res) => {
             const result = await usersCollection.find().toArray()
             res.send(result)
         })
@@ -48,6 +70,30 @@ async function run() {
                 return res.send({ message: 'User is alraday exists' })
             }
             const result = await usersCollection.insertOne(users);
+            res.send(result)
+        })
+
+
+        app.get('/users/admin/:email',verifyJwt, async (req, res) => {
+            const email = req.params.email;
+            if(req.decoded.email!==email){
+                return res.send({admin:false})
+            }
+            const query = { email: email }
+            const user = await usersCollection.findOne(query);
+            const result = { admin: user?.role === 'admin' }
+            res.send(result);
+        })
+
+        app.patch('/users/admin/:id', async (req, res) => {
+            const id = req.params.id
+            const filter = { _id: new ObjectId(id) }
+            const updateDoc = {
+                $set: {
+                    role: 'admin'
+                }
+            };
+            const result = await usersCollection.updateOne(filter, updateDoc);
             res.send(result)
         })
 
@@ -71,13 +117,22 @@ async function run() {
             res.send(result)
         })
 
-        app.get('/carts', async (req, res) => {
+        app.get('/carts', verifyJwt, async (req, res) => {
             const email = req.query.email
             console.log(email);
             const query = { email: email }
+
+
             if (!email) {
                 res.send([])
             }
+
+
+            const decodedEmail = req.decoded.email;
+            if (email !== decodedEmail) {
+                return res.status(403).send({ error: true, message: "Forbidden Access" })
+            }
+
             const result = await cartCollection.find(query).toArray();
             res.send(result)
         })
