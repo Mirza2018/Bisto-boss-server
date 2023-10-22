@@ -56,8 +56,19 @@ async function run() {
             const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' })
             res.send({ token })
         })
+
+
+        const verifyAdmin = async (req, res, next) => {
+            const email = req.decoded.email;
+            const query = { email: email }
+            const user = await usersCollection.findOne(query);
+            if (user?.role !== 'admin') {
+                return res.status(403).send({ error: true, message: "forbidden access" })
+            }
+            next()
+        }
         //users apis
-        app.get('/users', async (req, res) => {
+        app.get('/users', verifyJwt, verifyAdmin, async (req, res) => {
             const result = await usersCollection.find().toArray()
             res.send(result)
         })
@@ -74,10 +85,10 @@ async function run() {
         })
 
 
-        app.get('/users/admin/:email',verifyJwt, async (req, res) => {
+        app.get('/users/admin/:email', verifyJwt, async (req, res) => {
             const email = req.params.email;
-            if(req.decoded.email!==email){
-                return res.send({admin:false})
+            if (req.decoded.email !== email) {
+                return res.send({ admin: false })
             }
             const query = { email: email }
             const user = await usersCollection.findOne(query);
@@ -102,7 +113,18 @@ async function run() {
             const result = await menuCollection.find().toArray()
             res.send(result)
         })
-
+        app.post('/menu', verifyJwt, verifyAdmin, async (req, res) => {
+            const menuItem = req.body;
+            console.log(menuItem);
+            const result = await menuCollection.insertOne(menuItem);
+            res.send(result)
+        })
+        app.delete('/menu/:id', verifyJwt, verifyAdmin, async (req, res) => {
+            const id = req.params.id;
+            const filter = { _id: new ObjectId(id) }
+            const result = await menuCollection.deleteOne(filter);
+            res.send(result)
+        })
 
         //reviews apis
         app.get('/reviews', async (req, res) => {
