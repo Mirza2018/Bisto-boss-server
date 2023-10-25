@@ -190,7 +190,110 @@ async function run() {
         })
 
 
-        
+        app.get('/admin-stats', async (req, res) => {
+            const users = await usersCollection.estimatedDocumentCount()
+            const products = await menuCollection.estimatedDocumentCount()
+            const orders = await cartCollection.estimatedDocumentCount()
+
+            const payment = await paymentCollection.find().toArray()
+            const price = payment.reduce((a, b) => a + parseFloat(b.price), 0)
+            const totalprice = price.toFixed(2)
+
+
+            // const sum = await paymentCollection.aggregate( [
+            //     {
+            //       $group: 
+            //         {
+            //           _id: null, 
+            //           total: { $sum: "$price" } 
+            //         } 
+            //     }
+            //   ] ).toArray()
+
+            // res.send({
+            //     users, products, orders, totalprice, price,sum:sum[0].total
+            // })
+
+
+            res.send({
+                users, products, orders, totalprice
+            })
+        })
+
+        // app.get('/order-stats', async (req, res) => {
+        //     const pipeline = [
+        //         {
+        //             $lookup: {
+        //                 from: 'menu',
+        //                 localField: 'menuItems',
+        //                 foreignField: '_id',
+        //                 as: 'menuItemsData'
+        //             },
+        //         },
+        //         {
+        //             $unwind: '$menuItemsData'
+        //         },
+        //         {
+        //             $group: {
+        //                 _id: '$menuItemsData.category',
+        //                 count: { $sum: 1 },
+        //                 total: { $sum: '$menuItemsData.price' }
+        //             }
+        //         }, {
+        //             $project: {
+        //                 category: '$_id',
+        //                 count: 1,
+        //                 total: { $round: ['$total', 2] },
+        //                 _id: 0
+        //             }
+        //         }
+        //     ];
+
+        //     // const result = await paymentCollection.aggregate(pipeline).toArray()
+        //     // res.send(result)
+
+        //     const result = await paymentCollection.aggregate(pipeline).toArray()
+        //     res.send(result)
+        // })
+
+
+
+        app.get('/order-stats', async(req, res) =>{
+            const pipeline = [
+              {
+                $lookup: {
+                  from: 'menu',
+                  localField: 'menuItems',
+                  foreignField: '_id',
+                  as: 'menuItemsData'
+                }
+              },
+              {
+                $unwind: '$menuItemsData'
+              },
+              {
+                $group: {
+                  _id: '$menuItemsData.category',
+                  count: { $sum: 1 },
+                  total: { $sum: '$menuItemsData.price' }
+                }
+              },
+              {
+                $project: {
+                  category: '$_id',
+                  count: 1,
+                  total: { $round: ['$total', 2] },
+                  _id: 0
+                }
+              }
+            ];
+      
+            const result = await paymentCollection.aggregate(pipeline).toArray()
+            res.send(result)
+      
+          })
+      
+
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
