@@ -1,6 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken')
+const nodemailer = require("nodemailer");
+const mg = require('nodemailer-mailgun-transport');
 const app = express();
 const stripe = require('stripe')('sk_test_51O43YRKDpt7KOvOWQW41uEzaa3kxhYeKkA4oawBqV7YEGKTEsUI5ZmJPWhgB4j3d6tP86I2K8tXm1AWA94xRnXf800cfaGmB5d')
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
@@ -11,6 +13,49 @@ const port = process.env.PORT || 5000;
 // middlewire
 app.use(cors())
 app.use(express.json())
+
+// let transporter = nodemailer.createTransport({
+//     host: 'smtp.sendgrid.net',
+//     port: 587,
+//     auth: {
+//         user: "apikey",
+//         pass: process.env.SENDGRID_API_KEY
+//     }
+// })
+const auth = {
+    auth: {
+        api_key: process.env.EMAIL_PRIVATE_KEY,
+        domain: process.env.EMAIL_DOMAIN
+    }
+}
+
+const transporter = nodemailer.createTransport(mg(auth));
+
+
+
+
+//send payment confermation Email
+const sendPaymenytConfirmationEmail = payment => {
+    transporter.sendMail({
+        from: "mirza.eee.4th@gmail.com", // verified sender email
+        to: "mirza.eee.4th@gmail.com", // recipient email
+        subject: "Your Order is confirmed. Enjoy the food", // Subject line
+        text: "Hello world!", // plain text body
+        html: `
+        <div>
+        <h2> Hello world! </h2>
+        <p>Transection Id:${payment.transectionId}</p>
+        </div>
+        `, // html body
+    }, function (error, info) {
+        if (error) {
+            console.log(error);
+        } else {
+            console.log('Email sent: ' + info.response);
+        }
+    });
+
+}
 
 const verifyJwt = (req, res, next) => {
     const authorization = req.headers.authorization;
@@ -69,6 +114,8 @@ async function run() {
             }
             next()
         }
+
+
         //users apis
         app.get('/users', verifyJwt, verifyAdmin, async (req, res) => {
             const result = await usersCollection.find().toArray()
@@ -77,7 +124,7 @@ async function run() {
         app.post('/users', async (req, res) => {
             const users = req.body;
             const query = { email: users.email }
-            console.log(users);
+            // console.log(users);
             const filter = await usersCollection.findOne(query);
             if (filter) {
                 return res.send({ message: 'User is alraday exists' })
@@ -98,6 +145,8 @@ async function run() {
             res.send(result);
         })
 
+
+
         app.patch('/users/admin/:id', async (req, res) => {
             const id = req.params.id
             const filter = { _id: new ObjectId(id) }
@@ -117,7 +166,7 @@ async function run() {
         })
         app.post('/menu', verifyJwt, verifyAdmin, async (req, res) => {
             const menuItem = req.body;
-            console.log(menuItem);
+            // console.log(menuItem);
             const result = await menuCollection.insertOne(menuItem);
             res.send(result)
         })
@@ -136,14 +185,14 @@ async function run() {
 
         app.post('/carts', async (req, res) => {
             const item = req.body;
-            console.log(item);
+            // console.log(item);
             const result = await cartCollection.insertOne(item);
             res.send(result)
         })
 
         app.get('/carts', verifyJwt, async (req, res) => {
             const email = req.query.email
-            console.log(email);
+            // console.log(email);
             const query = { email: email }
 
 
@@ -176,6 +225,8 @@ async function run() {
                 currency: 'usd',
                 payment_method_types: ['card']
             })
+
+
             res.send({
                 clientSecret: paymentIntent.client_secret
             })
@@ -186,6 +237,7 @@ async function run() {
             const result = await paymentCollection.insertOne(payment)
             const query = { _id: { $in: payment.cartItems.map(id => new ObjectId(id)) } }
             const deleteResult = await cartCollection.deleteMany(query);
+            sendPaymenytConfirmationEmail(payment)
             res.send({ result, deleteResult })
         })
 
@@ -258,41 +310,41 @@ async function run() {
 
 
 
-        app.get('/order-stats', async(req, res) =>{
+        app.get('/order-stats', async (req, res) => {
             const pipeline = [
-              {
-                $lookup: {
-                  from: 'menu',
-                  localField: 'menuItems',
-                  foreignField: '_id',
-                  as: 'menuItemsData'
+                {
+                    $lookup: {
+                        from: 'menu',
+                        localField: 'menuItems',
+                        foreignField: '_id',
+                        as: 'menuItemsData'
+                    }
+                },
+                {
+                    $unwind: '$menuItemsData'
+                },
+                {
+                    $group: {
+                        _id: '$menuItemsData.category',
+                        count: { $sum: 1 },
+                        total: { $sum: '$menuItemsData.price' }
+                    }
+                },
+                {
+                    $project: {
+                        category: '$_id',
+                        count: 1,
+                        total: { $round: ['$total', 2] },
+                        _id: 0
+                    }
                 }
-              },
-              {
-                $unwind: '$menuItemsData'
-              },
-              {
-                $group: {
-                  _id: '$menuItemsData.category',
-                  count: { $sum: 1 },
-                  total: { $sum: '$menuItemsData.price' }
-                }
-              },
-              {
-                $project: {
-                  category: '$_id',
-                  count: 1,
-                  total: { $round: ['$total', 2] },
-                  _id: 0
-                }
-              }
             ];
-      
+
             const result = await paymentCollection.aggregate(pipeline).toArray()
             res.send(result)
-      
-          })
-      
+
+        })
+
 
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
@@ -305,6 +357,6 @@ async function run() {
 run().catch(console.dir);
 
 app.listen(port, () => {
-    console.log("port no mirza is", port);
+    console.log("BistroBoss is running", port);
 })
 
